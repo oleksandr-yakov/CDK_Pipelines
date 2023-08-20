@@ -7,6 +7,7 @@ from aws_cdk import (
     aws_dynamodb as dynamodb,
     aws_ssm as ssm,
 )
+import aws_cdk as cdk
 from constructs import Construct
 from config import connection_arn, branch
 
@@ -19,8 +20,11 @@ class PipelineStackServerless(Stack):
                                   assumed_by=iam.ServicePrincipal("codebuild.amazonaws.com"),
                                   managed_policies=[
                                       iam.ManagedPolicy.from_aws_managed_policy_name("AmazonSSMFullAccess"),
+                                      iam.ManagedPolicy.from_aws_managed_policy_name("AWSCloudFormationFullAccess"),
+                                      iam.ManagedPolicy.from_aws_managed_policy_name("AmazonS3FullAccess"),
+                                      iam.ManagedPolicy.from_aws_managed_policy_name("AmazonAPIGatewayAdministrator"),
+                                      iam.ManagedPolicy.from_aws_managed_policy_name("AdministratorAccess"),
                                   ])
-
 
         git_source_output = codepipeline.Artifact()
         source_action = codepipeline_actions.CodeStarConnectionsSourceAction(
@@ -49,7 +53,9 @@ class PipelineStackServerless(Stack):
                 name="listId",
                 type=dynamodb.AttributeType.STRING
             ),
-            #billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            read_capacity=1,
+            write_capacity=1,
+            removal_policy=cdk.RemovalPolicy.DESTROY,
         )
 
         card_table = dynamodb.Table(
@@ -59,21 +65,21 @@ class PipelineStackServerless(Stack):
                 name="cardId",
                 type=dynamodb.AttributeType.STRING
             ),
-            sort_key=dynamodb.Attribute(
-                name="listId",
-                type=dynamodb.AttributeType.STRING
-            ),
+            read_capacity=1,
+            write_capacity=1,
+            removal_policy=cdk.RemovalPolicy.DESTROY,
+
         )
 
         card_table.add_global_secondary_index(
-            index_name=f"ListIdIndex-{branch}",
+            index_name="ListIdIndex",
             partition_key=dynamodb.Attribute(
                 name="listId",
                 type=dynamodb.AttributeType.STRING
             ),
-            projection_type=dynamodb.ProjectionType.ALL,
             read_capacity=1,
             write_capacity=1,
+            projection_type=dynamodb.ProjectionType.ALL
         )
 
         ssm.StringParameter(
