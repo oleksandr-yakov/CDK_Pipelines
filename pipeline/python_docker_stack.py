@@ -4,14 +4,16 @@ from aws_cdk import (
     aws_codepipeline as codepipeline,
     aws_codepipeline_actions as codepipeline_actions,
     aws_s3 as s3,
-    aws_ecr as ecr,
     aws_ecs as ecs,
     aws_iam as iam,
     aws_ec2 as ec2,
+    aws_ecs_patterns as ecs_patterns,
+    aws_route53 as route53
 )
-from constructs import Construct
 from aws_cdk import aws_elasticloadbalancingv2 as elbv2
-from config import connection_arn, branch
+from constructs import Construct
+from config import connection_arn, branch, crt_aws_manager_arn
+from pipeline.python_docker_ecr import ecr_name, ecr_tag
 import aws_cdk as cdk
 
 
@@ -29,32 +31,24 @@ class PipelineStackDocker(Stack):
             output=git_source_output,
         )
 
-        ecr_policy = iam.PolicyStatement(
-            actions=["ecr:GetAuthorizationToken"],
-            resources=["*"]
-        )
-
         codebuild_role = iam.Role(self, f"CodeBuildRole-Front-{branch}",
                                   assumed_by=iam.ServicePrincipal("codebuild.amazonaws.com"),
                                   managed_policies=[
                                       iam.ManagedPolicy.from_aws_managed_policy_name("AmazonS3FullAccess"),
+                                      #iam.ManagedPolicy.from_aws_managed_policy_name("AdministratorAccess"),
                                       iam.ManagedPolicy.from_aws_managed_policy_name("AmazonECS_FullAccess"),
-                                      iam.ManagedPolicy.from_aws_managed_policy_name("AdministratorAccess"),
-                                      iam.ManagedPolicy.from_aws_managed_policy_name("AmazonECS_FullAccess"),
-                                      iam.ManagedPolicy.from_aws_managed_policy_name("AmazonEC2ContainerRegistryPowerUser"),
                                   ])
-
-        codebuild_role.attach_inline_policy(
-            iam.Policy(self, "ECRAuthorizationPolicy", statements=[ecr_policy])
-        )
 
         source_bucket = s3.Bucket(self, "SourceBucketDocker",
                                   removal_policy=cdk.RemovalPolicy.DESTROY,  # delte s3 if stack had been deleted
                                   bucket_name=f"yakov-s3-docker-{branch}-qefh312u",
+                                  cors=[
+                                      s3.CorsRule(
+                                          allowed_methods=[s3.HttpMethods.GET],
+                                          allowed_origins=["*"],
+                                          max_age=3000,
+                                      )]
                                   )
-
-        ecr_repo = ecr.Repository(self, "MyECRRepository",
-                                  repository_name=f"yakov-docker-repo-{branch}")
 
         ecs_cluster = ecs.Cluster(self, "MyECSCluster",
                                   cluster_name=f"yakov-docker-cluster-{branch}")
@@ -64,35 +58,89 @@ class PipelineStackDocker(Stack):
                                  desired_capacity=1,
                                  )
 
-        task_definition = ecs.Ec2TaskDefinition(self, "TaskDef")
+        task_role = iam.Role(
+            self, "TaskRole",
+            assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonEC2ContainerRegistryFullAccess")
+            ]
+        )
 
+        execution_role = iam.Role(
+            self, "ExecutionRole",
+            assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonS3FullAccess")
+            ]
+        )
+
+        task_definition = ecs.Ec2TaskDefinition(self, "TaskDef",
+                                                task_role=task_role,
+                                                execution_role=execution_role,
+                                                )
+
+        container_image = ecs.ContainerImage.from_registry(f"{ecr_name}:{ecr_tag}")
         container = task_definition.add_container("DefaultContainer",
-                                                  image=ecs.ContainerImage.from_ecr_repository(ecr_repo, "testv1"),
+                                                  image=container_image,
                                                   memory_limit_mib=200,
                                                   )
+
         container.add_port_mappings(ecs.PortMapping(container_port=3003, host_port=85))
 
-        ecs_service = ecs.Ec2Service(self, "Service",
-                                     service_name=f"yakov-docker-service-{branch}",
-                                     cluster=ecs_cluster,
-                                     task_definition=task_definition
-                                     )
+        hosted_zone = route53.HostedZone.from_lookup(self, "HostedZone",
+                                                     domain_name="kozub.dev")
+
+        cname_record = route53.CnameRecord(self, "CnameRecord",
+                                           zone=hosted_zone,
+                                           record_name=f"bilash-docker-api-{branch}",
+                                           domain_name="ServiceLBE9A1ADBC-N7f7RsvupFKZ-1466839129.eu-central-1.elb.amazonaws.com",
+                                           )
+
+        ecs_service = ecs_patterns.ApplicationLoadBalancedEc2Service(self, "Service",
+                                                                     service_name=f"yakov-docker-service-{branch}",
+                                                                     cluster=ecs_cluster,
+                                                                     task_definition=task_definition,
+                                                                     desired_count=1,
+                                                                     memory_limit_mib=512,
+                                                                     public_load_balancer=True,
+                                                                     listener_port=443,
+                                                                     protocol=elbv2.ApplicationProtocol.HTTPS,
+                                                                     certificate=elbv2.ListenerCertificate.from_arn(crt_aws_manager_arn),
+                                                                     )
 
         build_project = codebuild.PipelineProject(
             self,
             f"BuildProjectDocker-{branch}",
-            build_spec=codebuild.BuildSpec.from_source_filename("buildspec.yml"),
-            environment={
-                "privileged": True
-            },
+            build_spec=codebuild.BuildSpec.from_object({
+                "version": "0.2",
+                "phases": {
+                    "build": {
+                        "commands": [
+                            "echo $ECS_CLUSTER_NAME",
+                            "echo $ECS_SERVICE_NAME",
+                            "aws ecs update-service --cluster $ECS_CLUSTER_NAME --service $ECS_SERVICE_NAME --force-new-deployment",
+                        ]
+                    }
+                },
+            }),
+            environment=codebuild.BuildEnvironment(
+                build_image=codebuild.LinuxBuildImage.from_code_build_image_id("aws/codebuild/standard:7.0"),
+                #privileged=True
+            ),
             role=codebuild_role,
         )
+
+        env_variables = {
+            "ECS_CLUSTER_NAME": codebuild.BuildEnvironmentVariable(value=ecs_cluster.cluster_name),
+            "ECS_SERVICE_NAME": codebuild.BuildEnvironmentVariable(value=f"yakov-docker-service-{branch}"),
+        }
 
         build_action = codepipeline_actions.CodeBuildAction(
             action_name=f'CodeBuildDocker-{branch}',
             project=build_project,
             input=git_source_output,
             outputs=[codepipeline.Artifact(artifact_name='output')],
+            environment_variables=env_variables,
         )
 
         pipeline = codepipeline.Pipeline(self, f"DockerPipeline-{branch}", stages=[
@@ -102,6 +150,6 @@ class PipelineStackDocker(Stack):
             ),
             codepipeline.StageProps(
                 stage_name=f'Build-docker-{branch}',
-                actions=[build_action]
+                actions=[build_action],
             ),
         ])

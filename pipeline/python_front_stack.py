@@ -6,10 +6,12 @@ from aws_cdk import (
     aws_codepipeline as codepipeline,
     aws_codepipeline_actions as codepipeline_actions,
     aws_iam as iam,
+    aws_route53 as route53,
+    aws_certificatemanager as acm,
 )
 import aws_cdk as cdk
 from constructs import Construct
-from config import connection_arn, branch
+from config import connection_arn, branch, crt_aws_manager_arn_front
 
 
 class PipelineStackFront(Stack):
@@ -17,12 +19,10 @@ class PipelineStackFront(Stack):
         super().__init__(scope, construct_id, **kwargs)
 
         codebuild_role = iam.Role(self, f"CodeBuildRole-Front-{branch}",
-                                 assumed_by=iam.ServicePrincipal("codebuild.amazonaws.com"),
-                                 managed_policies=[
+                                  assumed_by=iam.ServicePrincipal("codebuild.amazonaws.com"),
+                                  managed_policies=[
                                      iam.ManagedPolicy.from_aws_managed_policy_name("AmazonS3FullAccess"),
-                                     iam.ManagedPolicy.from_aws_managed_policy_name("CloudFrontFullAccess"),
-                                 ]
-                                 )
+                                     iam.ManagedPolicy.from_aws_managed_policy_name("CloudFrontFullAccess"),])
 
         source_bucket = s3.Bucket(self, "SourceBucket",
                                   removal_policy=cdk.RemovalPolicy.DESTROY,                       # delte s3 if stack had been deleted
@@ -31,7 +31,13 @@ class PipelineStackFront(Stack):
                                   #access_control=s3.BucketAccessControl.PUBLIC_READ,
                                   )
 
-
+        hosted_zone = route53.HostedZone.from_lookup(self, "HostedZone",
+                                                     domain_name="kozub.dev",
+                                                     )
+        certificate = acm.Certificate.from_certificate_arn(
+            self, "MySSLCertificate",
+            certificate_arn=crt_aws_manager_arn_front
+        )
 
         distribution = cloudfront.CloudFrontWebDistribution(self, f"MyDistributionFront-{branch}",
                                                             origin_configs=[cloudfront.SourceConfiguration(
@@ -43,7 +49,13 @@ class PipelineStackFront(Stack):
                                                                                         allowed_methods=cloudfront.CloudFrontAllowedMethods.GET_HEAD,
                                                                                         )],
                                                             )],
+                                                            viewer_certificate=cloudfront.ViewerCertificate.from_acm_certificate(certificate),
                                                             )
+        cname_record = route53.CnameRecord(self, "CnameRecord",
+                                           zone=hosted_zone,
+                                           record_name=f"igorello-{branch}",
+                                           domain_name=distribution.distribution_domain_name,
+                                           )
 
         git_source_output = codepipeline.Artifact()
         source_action = codepipeline_actions.CodeStarConnectionsSourceAction(
@@ -55,7 +67,6 @@ class PipelineStackFront(Stack):
             output=git_source_output,
             trigger_on_push=True,
         )
-
 
         build_action = codepipeline_actions.CodeBuildAction(
             action_name=f'CodeBuildFront-{branch}',
@@ -87,10 +98,3 @@ class PipelineStackFront(Stack):
                                                 actions=[build_action]
                                             ),
                                         ])
-
-
-
-
-
-
-

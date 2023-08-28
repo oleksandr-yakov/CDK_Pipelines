@@ -68,7 +68,6 @@ class PipelineStackServerless(Stack):
             read_capacity=1,
             write_capacity=1,
             removal_policy=cdk.RemovalPolicy.DESTROY,
-
         )
 
         card_table.add_global_secondary_index(

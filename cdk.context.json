@@ -3,5 +3,9 @@
     "eu-central-1a",
     "eu-central-1b",
     "eu-central-1c"
-  ]
+  ],
+  "hosted-zone:account=666398651410:domainName=kozub.dev:region=eu-central-1": {
+    "Id": "/hostedzone/Z0319151YJ9E65TAAHXU",
+    "Name": "kozub.dev."
+  }
 }
