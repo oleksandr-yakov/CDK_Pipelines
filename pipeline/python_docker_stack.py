@@ -86,18 +86,13 @@ class PipelineStackDocker(Stack):
                                                 task_role=task_role,
                                                 execution_role=execution_role,
                                                 )
-        log_group = logs.LogGroup(self, "LogGroup",
-                                  log_group_name="Docker-ContainerLogs-Back",
-                                  removal_policy=cdk.RemovalPolicy.DESTROY,
-                                  )
+
         container = task_definition.add_container("DefaultContainer",
                                                   image=ecs.ContainerImage.from_ecr_repository(repo_from_ecr, "testv1"),
-                                                  memory_limit_mib=200,
-                                                  logging=ecs.LogDriver.aws_logs(
-                                                      stream_prefix="testing changes",
-                                                      log_group=log_group,
-                                                  ))
-        container.add_port_mappings(ecs.PortMapping(container_port=3003, host_port=85))
+                                                  memory_limit_mib=250,
+                                                  )
+
+        container.add_port_mappings(ecs.PortMapping(container_port=3003))
 
         certificate = acm.Certificate.from_certificate_arn(self, "Certificate", crt_aws_manager_arn)
 
@@ -106,7 +101,7 @@ class PipelineStackDocker(Stack):
                                                                      cluster=ecs_cluster,
                                                                      task_definition=task_definition,
                                                                      desired_count=1,
-                                                                     memory_limit_mib=512,#1024
+                                                                     memory_limit_mib=400,
                                                                      public_load_balancer=True,
                                                                      listener_port=443,
                                                                      protocol=elbv2.ApplicationProtocol.HTTPS,
@@ -169,7 +164,7 @@ class PipelineStackDocker(Stack):
                                         pipeline_name=f"Pipeliene-Docker-infra-{branch}",
         )
 
-        start_state = sfn.Pass(self, "Start")
+        #start_state = sfn.Pass(self, "Start")
 
 
 
