@@ -101,7 +101,7 @@ class PipelineStackDocker(Stack):
                                                                      cluster=ecs_cluster,
                                                                      task_definition=task_definition,
                                                                      desired_count=1,
-                                                                     memory_limit_mib=400,
+                                                                     #memory_limit_mib=400,
                                                                      public_load_balancer=True,
                                                                      listener_port=443,
                                                                      protocol=elbv2.ApplicationProtocol.HTTPS,
