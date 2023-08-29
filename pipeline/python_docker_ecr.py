@@ -33,7 +33,7 @@ class PipelineStackDockerECR(Stack):
                                       iam.ManagedPolicy.from_aws_managed_policy_name("AmazonEC2ContainerRegistryFullAccess"),
                                   ])
 
-        ecr_repo = ecr.Repository(self, "MyECRRepository",
+        self.ecr_repo = ecr.Repository(self, "MyECRRepository",
                                   repository_name=ecr_name)
 
         build_project = codebuild.PipelineProject(
@@ -50,7 +50,7 @@ class PipelineStackDockerECR(Stack):
         env_variables = {
             "DEV_ENV": codebuild.BuildEnvironmentVariable(value=branch),
             "AWS_REGION": codebuild.BuildEnvironmentVariable(value=region),
-            "REPO": codebuild.BuildEnvironmentVariable(value=ecr_repo.repository_name),
+            "REPO": codebuild.BuildEnvironmentVariable(value=self.ecr_repo.repository_name),
             "AWS_ACCOUNT_ID": codebuild.BuildEnvironmentVariable(value=account_id),
             "TAG": codebuild.BuildEnvironmentVariable(value=ecr_tag),
         }
@@ -63,14 +63,15 @@ class PipelineStackDockerECR(Stack):
             environment_variables=env_variables,
         )
 
-        pipeline = codepipeline.Pipeline(self, f"DockerPipeline-{branch}", stages=[
-            codepipeline.StageProps(
-                stage_name=f'SourceGit-docker-{branch}',
-                actions=[source_action]
-            ),
-            codepipeline.StageProps(
-                stage_name=f'Build-docker-{branch}',
-                actions=[build_action],
+        self.pipeline1 = codepipeline.Pipeline(self, f"DockerPipeline-{branch}", stages=[
+                                        codepipeline.StageProps(
+                                            stage_name=f'SourceGit-docker-{branch}',
+                                            actions=[source_action]
+                                        ),
+                                        codepipeline.StageProps(
+                                            stage_name=f'Build-docker-{branch}',
+                                            actions=[build_action],
 
-            ),
-        ])
+                                        )],
+                                        pipeline_name=f"Pipeliene-Docker-ECR-{branch}",
+                                        )

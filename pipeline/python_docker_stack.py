@@ -8,18 +8,26 @@ from aws_cdk import (
     aws_iam as iam,
     aws_ec2 as ec2,
     aws_ecs_patterns as ecs_patterns,
-    aws_route53 as route53
+    aws_route53 as route53,
+    aws_certificatemanager as acm,
+    aws_logs as logs,
+    aws_stepfunctions as sfn,
+    aws_stepfunctions_tasks as sfn_tasks,
 )
 from aws_cdk import aws_elasticloadbalancingv2 as elbv2
 from constructs import Construct
 from config import connection_arn, branch, crt_aws_manager_arn
-from pipeline.python_docker_ecr import ecr_name, ecr_tag
+from pipeline.python_docker_ecr import PipelineStackDockerECR
 import aws_cdk as cdk
 
 
 class PipelineStackDocker(Stack):
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
+
+        ecr_stack_instance = PipelineStackDockerECR(self, "PipelineStackDockerECRInstance") # from ecr docker pipieline
+        repo_from_ecr = ecr_stack_instance.ecr_repo
+        pipeline_ecr = ecr_stack_instance.pipeline1
 
         git_source_output = codepipeline.Artifact()
         source_action = codepipeline_actions.CodeStarConnectionsSourceAction(
@@ -78,14 +86,32 @@ class PipelineStackDocker(Stack):
                                                 task_role=task_role,
                                                 execution_role=execution_role,
                                                 )
-
-        container_image = ecs.ContainerImage.from_registry(f"{ecr_name}:{ecr_tag}")
+        log_group = logs.LogGroup(self, "LogGroup",
+                                  log_group_name="Docker-ContainerLogs-Back",
+                                  removal_policy=cdk.RemovalPolicy.DESTROY,
+                                  )
         container = task_definition.add_container("DefaultContainer",
-                                                  image=container_image,
+                                                  image=ecs.ContainerImage.from_ecr_repository(repo_from_ecr, "testv1"),
                                                   memory_limit_mib=200,
-                                                  )
-
+                                                  logging=ecs.LogDriver.aws_logs(
+                                                      stream_prefix="testing changes",
+                                                      log_group=log_group,
+                                                  ))
         container.add_port_mappings(ecs.PortMapping(container_port=3003, host_port=85))
+
+        certificate = acm.Certificate.from_certificate_arn(self, "Certificate", crt_aws_manager_arn)
+
+        ecs_service = ecs_patterns.ApplicationLoadBalancedEc2Service(self, "Service",
+                                                                     service_name=f"yakov-docker-service-{branch}",
+                                                                     cluster=ecs_cluster,
+                                                                     task_definition=task_definition,
+                                                                     desired_count=1,
+                                                                     memory_limit_mib=512,#1024
+                                                                     public_load_balancer=True,
+                                                                     listener_port=443,
+                                                                     protocol=elbv2.ApplicationProtocol.HTTPS,
+                                                                     certificate=certificate,
+                                                                     )
 
         hosted_zone = route53.HostedZone.from_lookup(self, "HostedZone",
                                                      domain_name="kozub.dev")
@@ -93,20 +119,8 @@ class PipelineStackDocker(Stack):
         cname_record = route53.CnameRecord(self, "CnameRecord",
                                            zone=hosted_zone,
                                            record_name=f"bilash-docker-api-{branch}",
-                                           domain_name="ServiceLBE9A1ADBC-N7f7RsvupFKZ-1466839129.eu-central-1.elb.amazonaws.com",
+                                           domain_name=ecs_service.load_balancer.load_balancer_dns_name,
                                            )
-
-        ecs_service = ecs_patterns.ApplicationLoadBalancedEc2Service(self, "Service",
-                                                                     service_name=f"yakov-docker-service-{branch}",
-                                                                     cluster=ecs_cluster,
-                                                                     task_definition=task_definition,
-                                                                     desired_count=1,
-                                                                     memory_limit_mib=512,
-                                                                     public_load_balancer=True,
-                                                                     listener_port=443,
-                                                                     protocol=elbv2.ApplicationProtocol.HTTPS,
-                                                                     certificate=elbv2.ListenerCertificate.from_arn(crt_aws_manager_arn),
-                                                                     )
 
         build_project = codebuild.PipelineProject(
             self,
@@ -143,13 +157,22 @@ class PipelineStackDocker(Stack):
             environment_variables=env_variables,
         )
 
-        pipeline = codepipeline.Pipeline(self, f"DockerPipeline-{branch}", stages=[
-            codepipeline.StageProps(
-                stage_name=f'SourceGit-docker-{branch}',
-                actions=[source_action]
-            ),
-            codepipeline.StageProps(
-                stage_name=f'Build-docker-{branch}',
-                actions=[build_action],
-            ),
-        ])
+        pipeline2 = codepipeline.Pipeline(self, f"DockerPipeline-{branch}", stages=[
+                                        codepipeline.StageProps(
+                                            stage_name=f'SourceGit-docker-{branch}',
+                                            actions=[source_action]
+                                        ),
+                                        codepipeline.StageProps(
+                                            stage_name=f'Build-docker-{branch}',
+                                            actions=[build_action],
+                                        )],
+                                        pipeline_name=f"Pipeliene-Docker-infra-{branch}",
+        )
+
+        start_state = sfn.Pass(self, "Start")
+
+
+
+
+
+

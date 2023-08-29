@@ -49,11 +49,17 @@ class PipelineStackFront(Stack):
                                                                                         allowed_methods=cloudfront.CloudFrontAllowedMethods.GET_HEAD,
                                                                                         )],
                                                             )],
-                                                            viewer_certificate=cloudfront.ViewerCertificate.from_acm_certificate(certificate),
+                                                            viewer_certificate=cloudfront.ViewerCertificate.from_acm_certificate(
+                                                                certificate=certificate,
+                                                                aliases=[f"new-igorello-{branch}.kozub.dev"],
+                                                                security_policy=cloudfront.SecurityPolicyProtocol.TLS_V1_2_2021,
+                                                            ),
+
                                                             )
+
         cname_record = route53.CnameRecord(self, "CnameRecord",
                                            zone=hosted_zone,
-                                           record_name=f"igorello-{branch}",
+                                           record_name=f"new-igorello-{branch}.kozub.dev",
                                            domain_name=distribution.distribution_domain_name,
                                            )
 
@@ -68,12 +74,21 @@ class PipelineStackFront(Stack):
             trigger_on_push=True,
         )
 
+        env_variables = {
+            "DEV_ENV": codebuild.BuildEnvironmentVariable(value=f"{branch}"),
+            "S3_NAME": codebuild.BuildEnvironmentVariable(value=source_bucket.bucket_name),
+            "CL_FRONT_DIST_ID": codebuild.BuildEnvironmentVariable(value=distribution.distribution_id),
+        }
+
         build_action = codepipeline_actions.CodeBuildAction(
             action_name=f'CodeBuildFront-{branch}',
             project=codebuild.PipelineProject(self, f"BuildProjectFront-{branch}",
                                               build_spec=codebuild.BuildSpec.from_source_filename("buildspec.yml"),
                                               role=codebuild_role,
-                                              ),
+                                              environment=codebuild.BuildEnvironment(
+                                                  build_image=codebuild.LinuxBuildImage.from_code_build_image_id(
+                                                      "aws/codebuild/standard:7.0"),
+                                              ),),
 
                                                                       #codepipline роль не нужна
                                                                       #он ничего не делает
@@ -82,7 +97,7 @@ class PipelineStackFront(Stack):
                                                                       # то она какая то будет дефолтная
                                                                       #а вот codebuild делает работу
                                                                       #ему нужен full access к s3 и cloudfront
-
+            environment_variables=env_variables,
             input=git_source_output,
             outputs=[codepipeline.Artifact(artifact_name='output')],
         )
