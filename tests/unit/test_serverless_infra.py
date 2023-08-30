@@ -11,7 +11,7 @@ def app():
 
 @pytest.fixture
 def stack(app):
-    yield PipelineStackServerless(app, "TestPipelineStackFront", env={'account': f'{account_id}', 'region': f'{region}'})
+    yield PipelineStackServerless(app, "TestPipelineStackServerless", env={'account': f'{account_id}', 'region': f'{region}'})
 
 
 def test_stack_creation(stack):

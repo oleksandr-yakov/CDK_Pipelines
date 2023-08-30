@@ -10,9 +10,6 @@ from aws_cdk import (
     aws_ecs_patterns as ecs_patterns,
     aws_route53 as route53,
     aws_certificatemanager as acm,
-    aws_logs as logs,
-    aws_stepfunctions as sfn,
-    aws_stepfunctions_tasks as sfn_tasks,
 )
 from aws_cdk import aws_elasticloadbalancingv2 as elbv2
 from constructs import Construct
@@ -25,9 +22,8 @@ class PipelineStackDocker(Stack):
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        ecr_stack_instance = PipelineStackDockerECR(self, "PipelineStackDockerECRInstance") # from ecr docker pipieline
+        ecr_stack_instance = PipelineStackDockerECR(self, "PipelineStackDockerECRInstance")  # from ecr docker pipieline
         repo_from_ecr = ecr_stack_instance.ecr_repo
-        pipeline_ecr = ecr_stack_instance.pipeline1
 
         git_source_output = codepipeline.Artifact()
         source_action = codepipeline_actions.CodeStarConnectionsSourceAction(
@@ -43,17 +39,19 @@ class PipelineStackDocker(Stack):
                                   assumed_by=iam.ServicePrincipal("codebuild.amazonaws.com"),
                                   managed_policies=[
                                       iam.ManagedPolicy.from_aws_managed_policy_name("AmazonS3FullAccess"),
-                                      #iam.ManagedPolicy.from_aws_managed_policy_name("AdministratorAccess"),
                                       iam.ManagedPolicy.from_aws_managed_policy_name("AmazonECS_FullAccess"),
                                   ])
 
         source_bucket = s3.Bucket(self, "SourceBucketDocker",
                                   removal_policy=cdk.RemovalPolicy.DESTROY,  # delte s3 if stack had been deleted
                                   bucket_name=f"yakov-s3-docker-{branch}-qefh312u",
+                                  # access_control=s3.BucketAccessControl("PUBLIC_READ"),
                                   cors=[
                                       s3.CorsRule(
-                                          allowed_methods=[s3.HttpMethods.GET],
+                                          allowed_headers=["*"],
+                                          allowed_methods=[s3.HttpMethods.GET, s3.HttpMethods.PUT],
                                           allowed_origins=["*"],
+                                          exposed_headers=[],
                                           max_age=3000,
                                       )]
                                   )
@@ -70,7 +68,8 @@ class PipelineStackDocker(Stack):
             self, "TaskRole",
             assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
             managed_policies=[
-                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonEC2ContainerRegistryFullAccess")
+                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonEC2ContainerRegistryFullAccess"),
+                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonS3FullAccess"),
             ]
         )
 
@@ -78,7 +77,7 @@ class PipelineStackDocker(Stack):
             self, "ExecutionRole",
             assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
             managed_policies=[
-                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonS3FullAccess")
+                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonS3FullAccess"),
             ]
         )
 
@@ -101,7 +100,6 @@ class PipelineStackDocker(Stack):
                                                                      cluster=ecs_cluster,
                                                                      task_definition=task_definition,
                                                                      desired_count=1,
-                                                                     #memory_limit_mib=400,
                                                                      public_load_balancer=True,
                                                                      listener_port=443,
                                                                      protocol=elbv2.ApplicationProtocol.HTTPS,
@@ -134,7 +132,7 @@ class PipelineStackDocker(Stack):
             }),
             environment=codebuild.BuildEnvironment(
                 build_image=codebuild.LinuxBuildImage.from_code_build_image_id("aws/codebuild/standard:7.0"),
-                #privileged=True
+                # privileged=True
             ),
             role=codebuild_role,
         )
@@ -152,7 +150,7 @@ class PipelineStackDocker(Stack):
             environment_variables=env_variables,
         )
 
-        pipeline2 = codepipeline.Pipeline(self, f"DockerPipeline-{branch}", stages=[
+        pipeline_infra = codepipeline.Pipeline(self, f"DockerPipeline-{branch}", stages=[
                                         codepipeline.StageProps(
                                             stage_name=f'SourceGit-docker-{branch}',
                                             actions=[source_action]
@@ -164,7 +162,11 @@ class PipelineStackDocker(Stack):
                                         pipeline_name=f"Pipeliene-Docker-infra-{branch}",
         )
 
-        #start_state = sfn.Pass(self, "Start")
+        # For testing
+        self.ecr_stack_instance = ecr_stack_instance
+        self.source_bucket = source_bucket
+        self.ecs_cluster = ecs_cluster
+        self.task_role = task_role
 
 
 
