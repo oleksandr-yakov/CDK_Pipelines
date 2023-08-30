@@ -10,7 +10,6 @@ from constructs import Construct
 from config import connection_arn, branch, region, account_id
 
 ecr_name = f"yakov-docker-repo-{branch}"
-ecr_tag = "testv1"
 
 
 class PipelineStackDockerECR(Stack):
@@ -31,6 +30,7 @@ class PipelineStackDockerECR(Stack):
                                   assumed_by=iam.ServicePrincipal("codebuild.amazonaws.com"),
                                   managed_policies=[
                                       iam.ManagedPolicy.from_aws_managed_policy_name("AmazonEC2ContainerRegistryFullAccess"),
+                                      iam.ManagedPolicy.from_aws_managed_policy_name("AWSBatchFullAccess")
                                   ])
 
         self.ecr_repo = ecr.Repository(self, "MyECRRepository",
@@ -52,7 +52,6 @@ class PipelineStackDockerECR(Stack):
             "AWS_REGION": codebuild.BuildEnvironmentVariable(value=region),
             "REPO": codebuild.BuildEnvironmentVariable(value=self.ecr_repo.repository_name),
             "AWS_ACCOUNT_ID": codebuild.BuildEnvironmentVariable(value=account_id),
-            "TAG": codebuild.BuildEnvironmentVariable(value=ecr_tag),
         }
 
         build_action = codepipeline_actions.CodeBuildAction(
@@ -63,7 +62,7 @@ class PipelineStackDockerECR(Stack):
             environment_variables=env_variables,
         )
 
-        self.pipeline1 = codepipeline.Pipeline(self, f"DockerPipeline-{branch}", stages=[
+        pipeline_ecr = codepipeline.Pipeline(self, f"DockerPipeline-{branch}", stages=[
                                         codepipeline.StageProps(
                                             stage_name=f'SourceGit-docker-{branch}',
                                             actions=[source_action]

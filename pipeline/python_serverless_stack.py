@@ -22,8 +22,8 @@ class PipelineStackServerless(Stack):
                                       iam.ManagedPolicy.from_aws_managed_policy_name("AmazonSSMFullAccess"),
                                       iam.ManagedPolicy.from_aws_managed_policy_name("AWSCloudFormationFullAccess"),
                                       iam.ManagedPolicy.from_aws_managed_policy_name("AmazonS3FullAccess"),
+                                      iam.ManagedPolicy.from_aws_managed_policy_name("AWSLambda_FullAccess"),
                                       iam.ManagedPolicy.from_aws_managed_policy_name("AmazonAPIGatewayAdministrator"),
-                                      iam.ManagedPolicy.from_aws_managed_policy_name("AdministratorAccess"),
                                   ])
 
         git_source_output = codepipeline.Artifact()
@@ -35,14 +35,21 @@ class PipelineStackServerless(Stack):
             action_name=f'GitHub_Source_ovsrd-trainee-back-serverless-{branch}',
             output=git_source_output,
         )
-
+        env_variables = {
+            "STAGE": codebuild.BuildEnvironmentVariable(value=f"{branch}"),
+        }
         build_action = codepipeline_actions.CodeBuildAction(
             action_name=f'CodeBuildServerless-{branch}',
             project=codebuild.PipelineProject(self, f"BuildProjectServerless-{branch}",
                                               build_spec=codebuild.BuildSpec.from_source_filename("buildspec.yml"),
                                               role=codebuild_role,
+                                              environment=codebuild.BuildEnvironment(
+                                                  build_image=codebuild.LinuxBuildImage.from_code_build_image_id(
+                                                      "aws/codebuild/standard:7.0"),
+                                              ),
                                               ),
             input=git_source_output,
+            environment_variables=env_variables,
             outputs=[codepipeline.Artifact(artifact_name='output')]
         )
 
@@ -106,5 +113,3 @@ class PipelineStackServerless(Stack):
 
         self.list_table = list_table
         self.card_table = card_table
-
-

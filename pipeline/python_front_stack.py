@@ -22,7 +22,9 @@ class PipelineStackFront(Stack):
                                   assumed_by=iam.ServicePrincipal("codebuild.amazonaws.com"),
                                   managed_policies=[
                                      iam.ManagedPolicy.from_aws_managed_policy_name("AmazonS3FullAccess"),
-                                     iam.ManagedPolicy.from_aws_managed_policy_name("CloudFrontFullAccess"),])
+                                     iam.ManagedPolicy.from_aws_managed_policy_name("CloudFrontFullAccess")
+                                                    ]
+                                  )
 
         source_bucket = s3.Bucket(self, "SourceBucket",
                                   removal_policy=cdk.RemovalPolicy.DESTROY,                       # delte s3 if stack had been deleted
