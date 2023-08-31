@@ -105,13 +105,14 @@ class PipelineStackFront(Stack):
         )
 
         pipeline = codepipeline.Pipeline(self, f"FrontPipeline-{branch}",
-                                        stages=[
-                                            codepipeline.StageProps(
-                                                stage_name=f'SourceGit-front-{branch}',
-                                                actions=[source_action]
-                                            ),
-                                            codepipeline.StageProps(
-                                                stage_name=f'Build-front-{branch}',
-                                                actions=[build_action]
-                                            ),
-                                        ])
+                                         stages=[
+                                             codepipeline.StageProps(
+                                                 stage_name=f'SourceGit-front-{branch}',
+                                                 actions=[source_action]
+                                             ),
+                                             codepipeline.StageProps(
+                                                 stage_name=f'Build-front-{branch}',
+                                                 actions=[build_action]
+                                             )],
+                                         pipeline_name=f"Pipeliene-Front-{branch}"
+                                         )

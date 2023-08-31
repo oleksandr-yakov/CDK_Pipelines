@@ -45,6 +45,7 @@ class PipelineStackDockerECR(Stack):
                 privileged=True
             ),
             role=codebuild_role,
+            project_name=f"Build-Project-Docker-ECR-{branch}",
         )
 
         env_variables = {

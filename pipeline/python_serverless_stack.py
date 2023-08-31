@@ -108,8 +108,9 @@ class PipelineStackServerless(Stack):
             codepipeline.StageProps(
                 stage_name=f'Build-serverless-{branch}',
                 actions=[build_action]
-            ),
-        ])
+            )],
+            pipeline_name=f"Pipeliene-Serverless-{branch}"
+            )
 
         self.list_table = list_table
         self.card_table = card_table

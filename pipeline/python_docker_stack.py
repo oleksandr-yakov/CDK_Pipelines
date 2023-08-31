@@ -40,10 +40,11 @@ class PipelineStackDocker(Stack):
                                   managed_policies=[
                                       iam.ManagedPolicy.from_aws_managed_policy_name("AmazonS3FullAccess"),
                                       iam.ManagedPolicy.from_aws_managed_policy_name("AmazonECS_FullAccess"),
+                                      iam.ManagedPolicy.from_aws_managed_policy_name("AmazonEC2ContainerRegistryFullAccess"),
                                   ])
 
         source_bucket = s3.Bucket(self, "SourceBucketDocker",
-                                  removal_policy=cdk.RemovalPolicy.DESTROY,  # delte s3 if stack had been deleted
+                                  removal_policy=cdk.RemovalPolicy.DESTROY,  # delete s3 if stack had been deleted
                                   bucket_name=f"yakov-s3-docker-{branch}-qefh312u",
                                   # access_control=s3.BucketAccessControl("PUBLIC_READ"),
                                   cors=[
@@ -87,7 +88,7 @@ class PipelineStackDocker(Stack):
                                                 )
 
         container = task_definition.add_container("DefaultContainer",
-                                                  image=ecs.ContainerImage.from_ecr_repository(repo_from_ecr, "testv1"),
+                                                  image=ecs.ContainerImage.from_ecr_repository(repo_from_ecr, "latest"),
                                                   memory_limit_mib=250,
                                                   )
 
@@ -118,28 +119,31 @@ class PipelineStackDocker(Stack):
         build_project = codebuild.PipelineProject(
             self,
             f"BuildProjectDocker-{branch}",
-            build_spec=codebuild.BuildSpec.from_object({
-                "version": "0.2",
-                "phases": {
-                    "build": {
-                        "commands": [
-                            "echo $ECS_CLUSTER_NAME",
-                            "echo $ECS_SERVICE_NAME",
-                            "aws ecs update-service --cluster $ECS_CLUSTER_NAME --service $ECS_SERVICE_NAME --force-new-deployment",
-                        ]
-                    }
-                },
-            }),
+            # build_spec=codebuild.BuildSpec.from_object({
+            #     "version": "0.2",
+            #     "phases": {
+            #         "build": {
+            #             "commands": [
+            #                 "echo $ECS_CLUSTER_NAME",
+            #                 "echo $ECS_SERVICE_NAME",
+            #                 "aws ecs update-service --cluster $ECS_CLUSTER_NAME --service $ECS_SERVICE_NAME --force-new-deployment",
+            #             ]
+            #         }
+            #     },
+            # }),
+            build_spec=codebuild.BuildSpec.from_source_filename("buildspec-infra.yml"),
             environment=codebuild.BuildEnvironment(
                 build_image=codebuild.LinuxBuildImage.from_code_build_image_id("aws/codebuild/standard:7.0"),
                 # privileged=True
             ),
             role=codebuild_role,
+
         )
 
         env_variables = {
             "ECS_CLUSTER_NAME": codebuild.BuildEnvironmentVariable(value=ecs_cluster.cluster_name),
             "ECS_SERVICE_NAME": codebuild.BuildEnvironmentVariable(value=f"yakov-docker-service-{branch}"),
+            "REPO": codebuild.BuildEnvironmentVariable(value=repo_from_ecr.repository_name),
         }
 
         build_action = codepipeline_actions.CodeBuildAction(
@@ -161,6 +165,7 @@ class PipelineStackDocker(Stack):
                                         )],
                                         pipeline_name=f"Pipeliene-Docker-infra-{branch}",
         )
+
 
         # For testing
         self.ecr_stack_instance = ecr_stack_instance
